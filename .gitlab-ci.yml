@@ -16,11 +16,13 @@ variables:
   DOCKER_USER: "$CI_HARBOR_USER"
   DOCKER_PASSWORD: "$CI_HARBOR_PASSWORD"
   DOCKER_TLS_CERTDIR: ""  # important pour éviter les conflits dind
+  DOCKER_HOST: "tcp://docker:2375"
   TRIVY_VERSION: "latest"
   TRIVY_CACHE: .trivycache
 
 .docker_service: &docker_service
   name: "docker:24.0.5-dind"
+  alias: "docker"
   command: ["--tls=false", "--host=tcp://0.0.0.0:2375", "--insecure-registry=harbor.local:8080"]
 
 .default_setup: &default_setup
