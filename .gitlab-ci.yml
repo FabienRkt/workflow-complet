@@ -30,29 +30,9 @@ variables:
     - apk add --no-cache jq curl
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
     - mkdir -p "$TRIVY_CACHE"
+    - timeout 60 sh -c 'until docker version >/dev/null 2>&1; do echo "Waiting for Docker..."; sleep 5; done'
     - sleep 10  # attendre pleinement le Docker dinD
     - docker version || (echo "[WARN] Docker non dispo !" && exit 1)
-
-
-test_dind_setup:
-  stage: precheck
-  image: "docker:24.0.5"
-  services:
-    - name: "docker:24.0.5-dind"
-      alias: "docker"
-      command: ["--tls=false", "--host=tcp://0.0.0.0:2375", "--insecure-registry=harbor.local:8080"]
-  variables:
-    DOCKER_HOST: "tcp://docker:2375"
-  script:
-    - echo "=== Test dind ==="
-    - sleep 15
-    - docker version && echo "✅ dind OK" || echo "❌ dind KO"
-    - echo "=== Test réseau ==="
-    - ping -c 2 docker && echo "✅ Service accessible" || echo "❌ Service inaccessible"
-    - echo "=== Test build ==="
-    - docker build -t test-image ./backend && echo "✅ Build OK" || echo "❌ Build KO"
-
-  allow_failure: false
 
 # -------- LOGIN HARBOR ---------------
 login_harbor:
