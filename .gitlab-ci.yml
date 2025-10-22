@@ -96,7 +96,8 @@ login_harbor:
     - docker build -t "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" "./${IMAGE_NAME}"
     
     - IMAGE_ID=$(docker images -q "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest")
-    - echo "Scanning image ID: $IMAGE_ID"
+    - |
+      echo "Scanning image ID: $IMAGE_ID"
     
     - echo "Starting pre-push scan of ${IMAGE_NAME}"
     - SCAN_TARGET=$IMAGE_ID
