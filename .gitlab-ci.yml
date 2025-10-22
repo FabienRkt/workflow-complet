@@ -28,9 +28,9 @@ variables:
 .default_setup: &default_setup
   before_script:
     - apk add --no-cache jq curl
+    - timeout 60 sh -c 'until docker version >/dev/null 2>&1; do echo "Waiting for Docker..."; sleep 5; done'
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
     - mkdir -p "$TRIVY_CACHE"
-    - timeout 60 sh -c 'until docker version >/dev/null 2>&1; do echo "Waiting for Docker..."; sleep 5; done'
     - sleep 10  # attendre pleinement le Docker dinD
     - docker version || (echo "[WARN] Docker non dispo !" && exit 1)
 
