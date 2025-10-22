@@ -1,0 +1,285 @@
+stages:
+  - precheck
+  - build
+  - prescan
+  - push
+  - postscan
+  - test
+  - deploy
+
+variables:
+  DOCKER_REGISTRY: "harbor.local:8080"
+  DOCKER_USER: "$CI_HARBOR_USER"
+  DOCKER_PASSWORD: "$CI_HARBOR_PASSWORD"
+  DOCKER_TLS_CERTDIR: ""  # important pour éviter les conflits dind
+  TRIVY_VERSION: "latest"
+  TRIVY_CACHE: .trivycache
+
+.docker_service: &docker_service
+  name: "docker:24.0.5-dind"
+  command: ["--tls=false", "--host=tcp://0.0.0.0:2375", "--insecure-registry=harbor.local:8080"]
+
+.default_setup: &default_setup
+  before_script:
+    - apk add --no-cache jq curl
+    - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
+    - mkdir -p "$TRIVY_CACHE"
+    - sleep 10  # attendre pleinement le Docker dinD
+    - docker version || (echo "[WARN] Docker non dispo !" && exit 1)
+
+# -------- LOGIN HARBOR ---------------
+login_harbor:
+  stage: precheck
+  image: "docker:24.0.5"
+  services: [*docker_service]
+  <<: *default_setup
+  script:
+    - echo "Login Harbor..."
+    - docker info
+
+# -------- BUILD & PRE-SCAN JOBS -----------------
+.build_and_scan_job: &build_and_scan_job
+  stage: build
+  image: "docker:24.0.5"
+  services: [*docker_service]
+  cache:
+    key: trivy-cache
+    paths: [ .trivycache/ ]
+  before_script:
+    - apk add --no-cache jq curl
+    - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
+    - mkdir -p "$TRIVY_CACHE" "${SCAN_DIR}"
+    - sleep 10
+    - docker version || (echo "[WARN] Docker non dispo !" && exit 1)
+  script:
+    # Étape 1: Build de l'image
+    - echo "Build ${IMAGE_NAME}..."
+    - docker build -t "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" "./${IMAGE_NAME}"
+    - echo "Liste des images Docker après build:"
+    - docker images
+    
+    # Étape 2: Pre-scan (scan local)
+    - echo "Début du scan pré-push de ${IMAGE_NAME}"
+    - mkdir -p "${SCAN_DIR}" "$TRIVY_CACHE"
+    - |
+      docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v "$(pwd)/${SCAN_DIR}:/report" \
+        -v "$(pwd)/$TRIVY_CACHE:/root/.cache/trivy" \
+        aquasec/trivy:${TRIVY_VERSION} \
+        image \
+        --cache-dir /root/.cache/trivy \
+        --timeout 10m \
+        --format json \
+        --output /report/${IMAGE_NAME}.json \
+        --exit-code 0 \
+        "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest"
+    
+    # Étape 3: Conversion en CSV
+    - |
+      if [ -f "${SCAN_DIR}/${IMAGE_NAME}.json" ]; then
+        echo "Conversion du rapport JSON en CSV..."
+        jq -r '.Results[]?.Vulnerabilities[]? | [.VulnerabilityID, .PkgName, .InstalledVersion, .FixedVersion, .Severity, .Title] | @csv' \
+          "${SCAN_DIR}/${IMAGE_NAME}.json" > "${SCAN_DIR}/${IMAGE_NAME}.csv"
+        echo "Analyse terminée - Rapports : ${SCAN_DIR}/"
+        ls -la "${SCAN_DIR}/"
+      else
+        echo "Échec de l'analyse Trivy (rapport JSON introuvable)"
+        exit 1
+      fi
+  artifacts:
+    paths: 
+      - ${SCAN_DIR}/
+    when: always
+    expire_in: 1 week
+  allow_failure: true
+
+build_and_scan_backend:
+  <<: *build_and_scan_job
+  needs: ["login_harbor"]
+  variables:
+    IMAGE_NAME: "backend"
+    SCAN_DIR: "scan_pre_push_backend"
+
+build_and_scan_frontend:
+  <<: *build_and_scan_job
+  needs: ["login_harbor"]
+  variables:
+    IMAGE_NAME: "frontend"
+    SCAN_DIR: "scan_pre_push_frontend"
+
+# ----- PUSH IMAGES -------
+push_images:
+  stage: push
+  image: "docker:24.0.5"
+  services: [*docker_service]
+  before_script:
+    - apk add --no-cache curl
+    - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
+    - sleep 5
+    - docker version
+  needs: ["build_and_scan_backend", "build_and_scan_frontend"]
+  script:
+    - echo "Pushing images to registry..."
+    # Rebuild les images car elles ne sont pas partagées entre jobs
+    - |
+      for image in backend frontend; do
+        echo "Building and pushing $image..."
+        docker build -t "$DOCKER_REGISTRY/workflow/$image:latest" "./$image"
+        docker push "$DOCKER_REGISTRY/workflow/$image:latest" || { echo "push $image NOK"; exit 1; }
+        echo "$image pushed successfully"
+      done
+
+# ----- POST-PUSH SCAN -------
+.scan_post_push_job: &scan_post_push_job
+  stage: postscan
+  image: "docker:24.0.5"
+  services: [*docker_service]
+  cache:
+    key: trivy-cache
+    paths: [ .trivycache/ ]
+  before_script:
+    - apk add --no-cache jq curl
+    - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
+    - mkdir -p "$TRIVY_CACHE" "${SCAN_DIR}"
+    - sleep 10
+    - docker version || (echo "[WARN] Docker non dispo !" && exit 1)
+  script:
+    - echo "Début du scan post-push de ${IMAGE_TO_SCAN}"
+    - mkdir -p "${SCAN_DIR}" "$TRIVY_CACHE"
+    - docker pull "${IMAGE_TO_SCAN}" || (echo "Unable to pull ${IMAGE_TO_SCAN}" && exit 1)
+    - |
+      docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v "$(pwd)/${SCAN_DIR}:/report" \
+        -v "$(pwd)/$TRIVY_CACHE:/root/.cache/trivy" \
+        aquasec/trivy:${TRIVY_VERSION} \
+        image \
+        --cache-dir /root/.cache/trivy \
+        --timeout 10m \
+        --format json \
+        --output /report/${IMAGE_NAME}.json \
+        --exit-code 0 \
+        "${IMAGE_TO_SCAN}"
+    - |
+      if [ -f "${SCAN_DIR}/${IMAGE_NAME}.json" ]; then
+        echo "Conversion du rapport JSON en CSV..."
+        jq -r '.Results[]?.Vulnerabilities[]? | [.VulnerabilityID, .PkgName, .InstalledVersion, .FixedVersion, .Severity, .Title] | @csv' \
+          "${SCAN_DIR}/${IMAGE_NAME}.json" > "${SCAN_DIR}/${IMAGE_NAME}.csv"
+        echo "Analyse post-push terminée - Rapports : ${SCAN_DIR}/"
+        ls -la "${SCAN_DIR}/"
+      else
+        echo "Échec de l'analyse Trivy post-push (rapport JSON introuvable)"
+        exit 1
+      fi
+  artifacts:
+    paths: 
+      - ${SCAN_DIR}/
+    when: always
+    expire_in: 1 week
+  allow_failure: true
+
+scan_post_push_backend:
+  <<: *scan_post_push_job
+  needs: ["push_images"]
+  variables:
+    SCAN_DIR: "scan_post_push_backend"
+    IMAGE_NAME: "backend"
+    IMAGE_TO_SCAN: "$DOCKER_REGISTRY/workflow/backend:latest"
+
+scan_post_push_frontend:
+  <<: *scan_post_push_job
+  needs: ["push_images"]
+  variables:
+    SCAN_DIR: "scan_post_push_frontend"
+    IMAGE_NAME: "frontend"
+    IMAGE_TO_SCAN: "$DOCKER_REGISTRY/workflow/frontend:latest"
+
+# ------ TEST JOBS -------
+.test_job: &test_job
+  stage: test
+  image: "docker:24.0.5"
+  services: [*docker_service]
+  before_script:
+    - apk add --no-cache curl
+    - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
+    - sleep 5
+    - docker version
+  script:
+    - echo "Running tests for ${IMAGE_NAME}..."
+    - docker pull "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" || (echo "Unable to pull ${IMAGE_NAME}" && exit 1)
+    - docker run --rm "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" $TEST_CMD
+  allow_failure: false
+
+test_backend:
+  <<: *test_job
+  needs: ["scan_post_push_backend"]
+  variables:
+    IMAGE_NAME: "backend"
+    TEST_CMD: "pytest -v"
+
+test_frontend:
+  <<: *test_job
+  needs: ["scan_post_push_frontend"]
+  variables:
+    IMAGE_NAME: "frontend"
+    TEST_CMD: "npm test -- --watchAll=false"
+
+# ------ DEPLOY -------
+deploy_local:
+  stage: deploy
+  image: "docker:24.0.5"
+  services: 
+    - name: docker:24.0.5-dind
+      command: ["--tls=false", "--host=tcp://0.0.0.0:2375", "--insecure-registry=harbor.local:8080"]
+  variables:
+    DOCKER_HOST: "tcp://docker:2375"
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    - apk add --no-cache curl
+    - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
+  needs: ["test_backend", "test_frontend"]
+  script:
+    - echo "DÉPLOIEMENT DANS L'ENVIRONNEMENT DIND..."
+    - |
+      # Utiliser le répertoire courant du projet GitLab
+      echo "Répertoire courant : $(pwd)"
+      echo "Contenu du répertoire :"
+      ls -la
+      
+      docker compose down || echo " Aucun conteneur en cours"
+      docker pull "$DOCKER_REGISTRY/workflow/backend:latest"
+      docker pull "$DOCKER_REGISTRY/workflow/frontend:latest"
+      docker compose up -d
+      sleep 15
+      docker compose ps
+    - |
+      echo "=== TESTS COMPLETS ==="
+    
+      # Attendre que les services soient vraiment prêts
+      echo "Attente du démarrage des services..."
+      sleep 30
+      
+      # Test avec timeout et retry
+      echo "1. Test backend avec retry :"
+      docker run --rm --network workflow-complet_default \
+        curlimages/curl:8.12.1 \
+        sh -c "for i in 1 2 3 4 5; do curl -f http://backend:5000/health && exit 0; sleep 5; done; exit 1" \
+        && echo "Backend santé OK" || echo "Backend santé échec"
+      
+      echo "2. Test frontend :"
+      docker run --rm --network workflow-complet_default \
+        curlimages/curl:8.12.1 \
+        curl http://frontend:3000 | grep -q "Hello" \
+        && echo "Frontend OK" || echo "Frontend échec"
+      
+      echo "3. Test communication inter-services :"
+      docker run --rm --network workflow-complet_default \
+        curlimages/curl:8.12.1 \
+        curl http://backend:5000/ | grep -q "Hello" \
+
+      echo "DÉPLOIEMENT RÉUSSI !"
+  environment:
+    name: production
+  allow_failure: false
+
