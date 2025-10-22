@@ -59,10 +59,13 @@ login_harbor:
     # Étape 1: Build de l'image
     - echo "Build ${IMAGE_NAME}..."
     - docker build -t "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" "./${IMAGE_NAME}"
-    - echo "Liste des images Docker après build:"
-    - docker images
     
-    # Étape 2: Pre-scan (scan local)
+    # Étape 2: Récupérer l'ID de l'image et scanner
+    - IMAGE_ID=$(docker images -q "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest")
+    - |
+      echo "Scanning image ID: $IMAGE_ID"
+    
+    # Étape 3: Pre-scan
     - echo "Début du scan pré-push de ${IMAGE_NAME}"
     - mkdir -p "${SCAN_DIR}" "$TRIVY_CACHE"
     - |
@@ -77,9 +80,9 @@ login_harbor:
         --format json \
         --output /report/${IMAGE_NAME}.json \
         --exit-code 0 \
-        "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest"
+        $IMAGE_ID
     
-    # Étape 3: Conversion en CSV
+    # Étape 4: Conversion en CSV
     - |
       if [ -f "${SCAN_DIR}/${IMAGE_NAME}.json" ]; then
         echo "Conversion du rapport JSON en CSV..."
