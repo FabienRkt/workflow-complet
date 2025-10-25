@@ -214,12 +214,11 @@ test_frontend:
     TEST_CMD: "npm test -- --watchAll=false"
 
 deploy_local:
+  tags: [workflow_deploy]
   stage: deploy
   image: 
     name: docker:24.0.5
     entrypoint: [""]
-  tags:
-    - Runner déploiement Docker hôte
   before_script:
     - apk add --no-cache curl docker-compose
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
