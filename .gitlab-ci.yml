@@ -219,6 +219,8 @@ deploy_local:
   image: 
     name: docker:24.0.5
     entrypoint: [""]
+  variables:
+    DOCKER_HOST: "" 
   before_script:
     - apk add --no-cache curl docker-compose
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
