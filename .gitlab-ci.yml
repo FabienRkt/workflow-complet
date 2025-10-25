@@ -1,6 +1,6 @@
-default:
-  tags:
-    - workflow
+#default:
+#  tags:
+#    - workflow
 
 stages:
   - precheck
@@ -70,6 +70,7 @@ variables:
   allow_failure: true
 
 login_harbor:
+  tags: [workflow]
   stage: precheck
   image: "docker:24.0.5"
   services: [*docker_service]
@@ -106,6 +107,7 @@ login_harbor:
   <<: *scan_artifacts
 
 build_and_scan_backend:
+  tags: [workflow]
   <<: *build_and_scan_template
   needs: ["login_harbor"]
   variables:
@@ -113,6 +115,7 @@ build_and_scan_backend:
     SCAN_DIR: "scan_pre_push_backend"
 
 build_and_scan_frontend:
+  tags: [workflow]
   <<: *build_and_scan_template
   needs: ["login_harbor"]
   variables:
@@ -120,6 +123,7 @@ build_and_scan_frontend:
     SCAN_DIR: "scan_pre_push_frontend"
 
 push_images:
+  tags: [workflow]
   stage: push
   image: "docker:24.0.5"
   services: [*docker_service]
@@ -161,6 +165,7 @@ push_images:
   <<: *scan_artifacts
 
 scan_post_push_backend:
+  tags: [workflow]
   <<: *scan_post_push_template
   needs: ["push_images"]
   variables:
@@ -169,6 +174,7 @@ scan_post_push_backend:
     IMAGE_TO_SCAN: "$DOCKER_REGISTRY/workflow/backend:latest"
 
 scan_post_push_frontend:
+  tags: [workflow]
   <<: *scan_post_push_template
   needs: ["push_images"]
   variables:
@@ -192,6 +198,7 @@ scan_post_push_frontend:
   allow_failure: false
 
 test_backend:
+  tags: [workflow]
   <<: *test_template
   needs: ["scan_post_push_backend"]
   variables:
@@ -199,6 +206,7 @@ test_backend:
     TEST_CMD: "pytest -v"
 
 test_frontend:
+  tags: [workflow]
   <<: *test_template
   needs: ["scan_post_push_frontend"]
   variables:
@@ -207,49 +215,70 @@ test_frontend:
 
 deploy_local:
   stage: deploy
-  image: "docker:24.0.5"
-  services: [*docker_service]
+  image: 
+    name: docker:24.0.5
+    entrypoint: [""]
+  tags:
+    - workflow-deploy
   before_script:
-    - apk add --no-cache curl
+    - apk add --no-cache curl docker-compose
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
   needs: ["test_backend", "test_frontend"]
   script:
-    - echo "DEPLOYING TO DIND ENVIRONMENT..."
+    - echo "🚀 DEPLOYING TO HOST DOCKER ENVIRONMENT..."
     - |
-      echo "Current directory: $(pwd)"
-      echo "Directory content:"
-      ls -la
+      echo "=== DOCKER HOST INFORMATION ==="
+      docker version
+      echo "Current containers on host:"
+      docker ps -a
       
-      docker compose down || echo "No running containers"
+      echo "=== STOPPING EXISTING CONTAINERS ==="
+      docker compose down || echo "No running containers to stop"
+      
+      echo "=== PULLING LATEST IMAGES ==="
       docker pull "$DOCKER_REGISTRY/workflow/backend:latest"
       docker pull "$DOCKER_REGISTRY/workflow/frontend:latest"
+      
+      echo "=== STARTING SERVICES ==="
       docker compose up -d
+      
+      echo "=== VERIFICATION ==="
       sleep 15
+      echo "Docker Compose status:"
       docker compose ps
+      echo "All host containers:"
+      docker ps
     - |
-      echo "=== COMPREHENSIVE TESTS ==="
+      echo "=== HEALTH CHECKS ON HOST PORTS ==="
+      sleep 20
       
-      echo "Waiting for services to start..."
-      sleep 30
+      # Vérifier que les services écoutent sur les ports exposés
+      echo "1. Checking if services are listening on ports..."
+      netstat -tlnp | grep -E ":5000|:3000" || echo "Ports not yet ready, waiting..."
+      sleep 10
       
-      echo "1. Backend health check with retry:"
-      docker run --rm --network workflow-complet_default \
-        curlimages/curl:8.12.1 \
-        sh -c "for i in 1 2 3 4 5; do curl -f http://backend:5000/health && exit 0; sleep 5; done; exit 1" \
-        && echo "Backend health OK" || echo "Backend health failed"
+      echo "2. Backend health check (port 5000):"
+      if curl -f http://localhost:5000/health; then
+        echo "✅ Backend health OK"
+      else
+        echo "❌ Backend health check failed"
+        docker compose logs backend
+        exit 1
+      fi
       
-      echo "2. Frontend check:"
-      docker run --rm --network workflow-complet_default \
-        curlimages/curl:8.12.1 \
-        curl http://frontend:3000 | grep -q "Hello" \
-        && echo "Frontend OK" || echo "Frontend failed"
+      echo "3. Frontend check (port 3000):"
+      if curl -f http://localhost:3000; then
+        echo "✅ Frontend OK"
+      else
+        echo "❌ Frontend check failed"
+        docker compose logs frontend
+        exit 1
+      fi
       
-      echo "3. Inter-service communication:"
-      docker run --rm --network workflow-complet_default \
-        curlimages/curl:8.12.1 \
-        curl http://backend:5000/ | grep -q "Hello" \
-
-      echo "DEPLOYMENT SUCCESSFUL!"
+      echo "🎉 DEPLOYMENT SUCCESSFUL!"
+      echo "📋 Containers are now running on host Docker"
+      echo "👀 View with: docker ps"
+      echo "🌐 Access via: http://localhost:3000 (frontend) & http://localhost:5000 (backend)"
   environment:
     name: production
   allow_failure: false
