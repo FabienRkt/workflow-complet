@@ -1,7 +1,3 @@
-#default:
-#  tags:
-#    - workflow
-
 stages:
   - precheck
   - build
@@ -29,11 +25,11 @@ variables:
 .default_setup: &default_setup
   before_script:
     - apk add --no-cache jq curl
-    - timeout 60 sh -c 'until docker version >/dev/null 2>&1; do echo "Waiting for Docker..."; sleep 5; done'
+    - timeout 60 sh -c 'until docker version >/dev/null 2>&1; do echo "En attente de Docker..."; sleep 5; done'
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
     - mkdir -p "$TRIVY_CACHE"
     - sleep 10
-    - docker version || (echo "Docker unavailable!" && exit 1)
+    - docker version || (echo "Docker indisponible !" && exit 1)
 
 .trivy_scan: &trivy_scan
   - |
@@ -55,10 +51,10 @@ variables:
     if [ -f "${SCAN_DIR}/${IMAGE_NAME}.json" ]; then
       jq -r '.Results[]?.Vulnerabilities[]? | [.VulnerabilityID, .PkgName, .InstalledVersion, .FixedVersion, .Severity, .Title] | @csv' \
         "${SCAN_DIR}/${IMAGE_NAME}.json" > "${SCAN_DIR}/${IMAGE_NAME}.csv"
-      echo "Scan completed - Reports: ${SCAN_DIR}/"
+      echo "Analyse terminée - Rapports : ${SCAN_DIR}/"
       ls -la "${SCAN_DIR}/"
     else
-      echo "Trivy scan failed (JSON report missing)"
+      echo "Echec de l'analyse Trivy (rapport JSON manquant)"
       exit 1
     fi
 
@@ -77,7 +73,7 @@ login_harbor:
   services: [*docker_service]
   <<: *default_setup
   script:
-    - echo "Login Harbor..."
+    - echo "Connexion a Harbor..."
     - docker info
 
 .build_and_scan_template: &build_and_scan_template
@@ -92,16 +88,16 @@ login_harbor:
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
     - mkdir -p "$TRIVY_CACHE" "${SCAN_DIR}"
     - sleep 10
-    - docker version || (echo "Docker unavailable!" && exit 1)
+    - docker version || (echo "Docker indisponible !" && exit 1)
   script:
-    - echo "Building ${IMAGE_NAME}..."
+    - echo "Construction de ${IMAGE_NAME}..."
     - docker build -t "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" "./${IMAGE_NAME}"
     
     - IMAGE_ID=$(docker images -q "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest")
     - |
-      echo "Scanning image ID: $IMAGE_ID"
+      echo "Analyse de l'image ID : $IMAGE_ID"
     
-    - echo "Starting pre-push scan of ${IMAGE_NAME}"
+    - echo "Debut de l'analyse pre-push de ${IMAGE_NAME}"
     - SCAN_TARGET=$IMAGE_ID
     - *trivy_scan
     - *json_to_csv
@@ -135,13 +131,13 @@ push_images:
     - docker version
   needs: ["build_and_scan_backend", "build_and_scan_frontend"]
   script:
-    - echo "Pushing images to registry..."
+    - echo "Envoi des images au registre..."
     - |
       for image in backend frontend; do
-        echo "Building and pushing $image..."
+        echo "Construction et envoi de $image..."
         docker build -t "$DOCKER_REGISTRY/workflow/$image:latest" "./$image"
-        docker push "$DOCKER_REGISTRY/workflow/$image:latest" || { echo "push $image failed"; exit 1; }
-        echo "$image pushed successfully"
+        docker push "$DOCKER_REGISTRY/workflow/$image:latest" || { echo "Echec de l'envoi de $image"; exit 1; }
+        echo "$image envoye avec succes"
       done
 
 .scan_post_push_template: &scan_post_push_template
@@ -156,10 +152,10 @@ push_images:
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
     - mkdir -p "$TRIVY_CACHE" "${SCAN_DIR}"
     - sleep 10
-    - docker version || (echo "Docker unavailable!" && exit 1)
+    - docker version || (echo "Docker indisponible !" && exit 1)
   script:
-    - echo "Starting post-push scan of ${IMAGE_NAME}"
-    - docker pull "${IMAGE_TO_SCAN}" || (echo "Unable to pull ${IMAGE_TO_SCAN}" && exit 1)
+    - echo "Debut de l'analyse post-push de ${IMAGE_NAME}"
+    - docker pull "${IMAGE_TO_SCAN}" || (echo "Impossible de recuperer ${IMAGE_TO_SCAN}" && exit 1)
     - SCAN_TARGET="${IMAGE_TO_SCAN}"
     - *trivy_scan
     - *json_to_csv
@@ -193,8 +189,8 @@ scan_post_push_frontend:
     - sleep 5
     - docker version
   script:
-    - echo "Running tests for ${IMAGE_NAME}..."
-    - docker pull "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" || (echo "Unable to pull ${IMAGE_NAME}" && exit 1)
+    - echo "Execution des tests pour ${IMAGE_NAME}..."
+    - docker pull "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" || (echo "Impossible de recuperer ${IMAGE_NAME}" && exit 1)
     - docker run --rm "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest" $TEST_CMD
   allow_failure: false
 
@@ -227,47 +223,46 @@ deploy_local:
     - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
   needs: ["test_backend", "test_frontend"]
   script:
-    - echo "🚀 DEPLOYING TO HOST DOCKER ENVIRONMENT..."
+    - echo "Deploiement vers l'environnement Docker hote..."
     - |
-      echo "=== DOCKER HOST INFORMATION ==="
+      echo "Information Docker hote :"
       docker version
-      echo "Current containers on host:"
+      echo "Conteneurs actuels sur l'hote :"
       docker ps -a
       
-      echo "=== STOPPING EXISTING CONTAINERS ==="
-      docker compose down || echo "No running containers to stop"
+      echo "Arret des conteneurs existants :"
+      docker compose down || echo "Aucun conteneur en cours d'execution"
       
-      echo "=== PULLING LATEST IMAGES ==="
+      echo "Recuperation des dernieres images :"
       docker pull "$DOCKER_REGISTRY/workflow/backend:latest"
       docker pull "$DOCKER_REGISTRY/workflow/frontend:latest"
       
-      echo "=== STARTING SERVICES ==="
+      echo "Demarrage des services :"
       docker compose up -d
       
-      echo "=== VERIFICATION ==="
+      echo "Verification :"
       sleep 15
-      echo "Docker Compose status:"
+      echo "Statut Docker Compose :"
       docker compose ps
-      echo "All host containers:"
+      echo "Tous les conteneurs de l'hote :"
       docker ps
     - |
-      echo "=== HEALTH CHECKS ON HOST PORTS ==="
+      echo "Controles de sante sur les ports de l'hote :"
       sleep 30
       
-      # Trouver l'IP de l'hôte Docker
       HOST_IP=$(ip route | grep default | awk '{print $3}')
-      echo "Using host IP: $HOST_IP"
+      echo "Utilisation de l'IP de l'hote : $HOST_IP"
       
-      echo "1. Backend check:"
-      curl -f http://$HOST_IP:5000/health && echo "✅ Backend OK" || (echo "❌ Backend failed" && docker compose logs backend)
+      echo "Controle backend :"
+      curl -f http://$HOST_IP:5000/health && echo "Backend operationnel" || (echo "Echec du backend" && docker compose logs backend)
       
-      echo "2. Frontend check:"
-      curl -f http://$HOST_IP:3000 && echo "✅ Frontend OK" || (echo "❌ Frontend failed" && docker compose logs frontend)
+      echo "Controle frontend :"
+      curl -f http://$HOST_IP:3000 && echo "Frontend operationnel" || (echo "Echec du frontend" && docker compose logs frontend)
       
-      echo "🎉 DEPLOYMENT SUCCESSFUL!"
-      echo "📋 Containers are now running on host Docker"
-      echo "👀 View with: docker ps"
-      echo "🌐 Access via: http://localhost:3000 (frontend) & http://localhost:5000 (backend)"
+      echo "Deploiement reussi"
+      echo "Les conteneurs sont maintenant en cours d'execution sur Docker hote"
+      echo "Visualisation avec : docker ps"
+      echo "Acces via : http://localhost:3000 (frontend) et http://localhost:5000 (backend)"
   environment:
     name: production
   allow_failure: false
@@ -277,7 +272,7 @@ send_whatsapp_notification:
   image: curlimages/curl:8.12.1
   script:
     - |
-      MESSAGE="✅ Pipeline #$CI_PIPELINE_ID terminé avec succès sur le projet $CI_PROJECT_NAME (branche $CI_COMMIT_REF_NAME). 🚀"
+      MESSAGE="Pipeline #$CI_PIPELINE_ID termine avec succes sur le projet $CI_PROJECT_NAME (branche $CI_COMMIT_REF_NAME)."
       curl -X POST "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Messages.json" \
       --data-urlencode "From=$TWILIO_WHATSAPP_FROM" \
       --data-urlencode "To=$TWILIO_WHATSAPP_TO" \
