@@ -249,16 +249,19 @@ deploy_local:
       docker compose ps
       echo "All host containers:"
       docker ps
-    - |  # ⚠️ CETTE LIGNE DOIT ÊTRE ALIGNÉE AVEC LES AUTRES "-"
+    - |
       echo "=== HEALTH CHECKS ON HOST PORTS ==="
+      sleep 30
       
-      sleep 120  # Attendre 60 secondes
+      # Trouver l'IP de l'hôte Docker
+      HOST_IP=$(ip route | grep default | awk '{print $3}')
+      echo "Using host IP: $HOST_IP"
       
       echo "1. Backend check:"
-      curl -f http://localhost:5000/health && echo "✅ Backend OK" || echo "❌ Backend failed"
+      curl -f http://$HOST_IP:5000/health && echo "✅ Backend OK" || (echo "❌ Backend failed" && docker compose logs backend)
       
       echo "2. Frontend check:"
-      curl -f http://localhost:3000 && echo "✅ Frontend OK" || echo "❌ Frontend failed"
+      curl -f http://$HOST_IP:3000 && echo "✅ Frontend OK" || (echo "❌ Frontend failed" && docker compose logs frontend)
       
       echo "🎉 DEPLOYMENT SUCCESSFUL!"
       echo "📋 Containers are now running on host Docker"
