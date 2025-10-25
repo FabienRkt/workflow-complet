@@ -214,7 +214,7 @@ test_frontend:
     TEST_CMD: "npm test -- --watchAll=false"
 
 deploy_local:
-  tags: [workflow_deploy]
+  tags: [workflow-deploy]
   stage: deploy
   image: 
     name: docker:24.0.5
