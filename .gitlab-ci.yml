@@ -249,30 +249,39 @@ deploy_local:
       docker compose ps
       echo "All host containers:"
       docker ps
-      
-    - |
+    - |  # ⚠️ CETTE LIGNE DOIT ÊTRE ALIGNÉE AVEC LES AUTRES "-"
       echo "=== HEALTH CHECKS ON HOST PORTS ==="
       
-      echo "1. Waiting for services to be ready..."
-      sleep 45  # Attendre 45 secondes pour que tout soit prêt
+      # Attendre plus longtemps pour le backend Flask
+      echo "1. Waiting for backend to be ready (up to 60 seconds)..."
+      for i in $(seq 1 12); do
+        if curl -f http://localhost:5000/health 2>/dev/null; then
+          echo "✅ Backend is ready after $((i*5)) seconds"
+          break
+        fi
+        echo "   Backend not ready yet... waiting 5 seconds ($i/12)"
+        sleep 5
+        if [ $i -eq 12 ]; then
+          echo "❌ Backend failed to start within 60 seconds"
+          docker compose logs backend
+          exit 1
+        fi
+      done
       
-      echo "2. Backend health check (port 5000):"
-      if curl -f http://localhost:5000/health; then
-        echo "✅ Backend health OK"
-      else
-        echo "❌ Backend health check failed"
-        docker compose logs backend
-        exit 1
-      fi
-      
-      echo "3. Frontend check (port 3000):"
-      if curl -f http://localhost:3000; then
-        echo "✅ Frontend OK"
-      else
-        echo "❌ Frontend check failed"
-        docker compose logs frontend
-        exit 1
-      fi
+      echo "2. Waiting for frontend to be ready (up to 30 seconds)..."
+      for i in $(seq 1 6); do
+        if curl -f http://localhost:3000 2>/dev/null; then
+          echo "✅ Frontend is ready after $((i*5)) seconds"
+          break
+        fi
+        echo "   Frontend not ready yet... waiting 5 seconds ($i/6)"
+        sleep 5
+        if [ $i -eq 6 ]; then
+          echo "❌ Frontend failed to start within 30 seconds"
+          docker compose logs frontend
+          exit 1
+        fi
+      done
       
       echo "🎉 DEPLOYMENT SUCCESSFUL!"
       echo "📋 Containers are now running on host Docker"
