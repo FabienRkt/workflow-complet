@@ -10,6 +10,7 @@ stages:
   - postscan
   - test
   - deploy
+  - notification
 
 variables:
   DOCKER_REGISTRY: "harbor.local:8080"
@@ -270,3 +271,17 @@ deploy_local:
   environment:
     name: production
   allow_failure: false
+
+send_whatsapp_notification:
+  stage: notification
+  image: curlimages/curl:8.12.1
+  script:
+    - |
+      MESSAGE="✅ Pipeline #$CI_PIPELINE_ID terminé avec succès sur le projet $CI_PROJECT_NAME (branche $CI_COMMIT_REF_NAME). 🚀"
+      curl -X POST "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Messages.json" \
+      --data-urlencode "From=$TWILIO_WHATSAPP_FROM" \
+      --data-urlencode "To=$TWILIO_WHATSAPP_TO" \
+      --data-urlencode "Body=$MESSAGE" \
+      -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN"
+  when: always
+  needs: []
