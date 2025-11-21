@@ -1,8 +1,6 @@
 stages:
   - precheck
-  - build
-  - prescan
-  - push
+  - build_and_scan
   - postscan
   - test
   - deploy
@@ -77,7 +75,7 @@ login_harbor:
     - docker info
 
 .build_and_scan_template: &build_and_scan_template
-  stage: build
+  stage: build_and_scan
   image: "docker:24.0.5"
   services: [*docker_service]
   cache:
@@ -101,6 +99,11 @@ login_harbor:
     - SCAN_TARGET=$IMAGE_ID
     - *trivy_scan
     - *json_to_csv
+
+    - echo "Envoi de l'image ${IMAGE_NAME} au registre..."
+    - docker push "$DOCKER_REGISTRY/workflow/${IMAGE_NAME}:latest"
+    - echo "${IMAGE_NAME} envoyé avec succès"
+    
   <<: *scan_artifacts
 
 build_and_scan_backend:
@@ -118,27 +121,6 @@ build_and_scan_frontend:
   variables:
     IMAGE_NAME: "frontend"
     SCAN_DIR: "scan_pre_push_frontend"
-
-push_images:
-  tags: [workflow]
-  stage: push
-  image: "docker:24.0.5"
-  services: [*docker_service]
-  before_script:
-    - apk add --no-cache curl
-    - echo "$DOCKER_PASSWORD" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
-    - sleep 5
-    - docker version
-  needs: ["build_and_scan_backend", "build_and_scan_frontend"]
-  script:
-    - echo "Envoi des images au registre..."
-    - |
-       for image in backend frontend; do
-        echo "Construction et envoi de $image..."
-        docker build -t "$DOCKER_REGISTRY/workflow/$image:latest" "./$image"
-        docker push "$DOCKER_REGISTRY/workflow/$image:latest" || { echo "Echec de l'envoi de $image"; exit 1; }
-        echo "$image envoye avec succes"
-       done
 
 .scan_post_push_template: &scan_post_push_template
   stage: postscan
@@ -164,7 +146,7 @@ push_images:
 scan_post_push_backend:
   tags: [workflow]
   <<: *scan_post_push_template
-  needs: ["push_images"]
+  needs: ["build_and_scan_backend"]
   variables:
     SCAN_DIR: "scan_post_push_backend"
     IMAGE_NAME: "backend"
@@ -173,7 +155,7 @@ scan_post_push_backend:
 scan_post_push_frontend:
   tags: [workflow]
   <<: *scan_post_push_template
-  needs: ["push_images"]
+  needs: ["build_and_scan_frontend"]
   variables:
     SCAN_DIR: "scan_post_push_frontend"
     IMAGE_NAME: "frontend"
