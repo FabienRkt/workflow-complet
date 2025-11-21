@@ -133,12 +133,12 @@ push_images:
   script:
     - echo "Envoi des images au registre..."
     - |
-      for image in backend frontend; do
-        echo "Récupération et envoi de $image..."
-        docker tag "workflow/$image:latest" "$DOCKER_REGISTRY/workflow/$image:latest"
+       for image in backend frontend; do
+        echo "Construction et envoi de $image..."
+        docker build -t "$DOCKER_REGISTRY/workflow/$image:latest" "./$image"
         docker push "$DOCKER_REGISTRY/workflow/$image:latest" || { echo "Echec de l'envoi de $image"; exit 1; }
-        echo "$image envoyé avec succès"
-      done
+        echo "$image envoye avec succes"
+       done
 
 .scan_post_push_template: &scan_post_push_template
   stage: postscan
