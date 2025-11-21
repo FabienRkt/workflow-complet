@@ -134,10 +134,10 @@ push_images:
     - echo "Envoi des images au registre..."
     - |
       for image in backend frontend; do
-        echo "Construction et envoi de $image..."
-        docker build -t "$DOCKER_REGISTRY/workflow/$image:latest" "./$image"
+        echo "Récupération et envoi de $image..."
+        docker tag "workflow/$image:latest" "$DOCKER_REGISTRY/workflow/$image:latest"
         docker push "$DOCKER_REGISTRY/workflow/$image:latest" || { echo "Echec de l'envoi de $image"; exit 1; }
-        echo "$image envoye avec succes"
+        echo "$image envoyé avec succès"
       done
 
 .scan_post_push_template: &scan_post_push_template
