@@ -41,7 +41,8 @@ variables:
       --timeout 10m \
       --format json \
       --output /report/${IMAGE_NAME}.json \
-      --exit-code 0 \
+      --severity HIGH,CRITICAL \
+      --exit-code 1 \
       $SCAN_TARGET
 
 .json_to_csv: &json_to_csv
