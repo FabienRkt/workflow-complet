@@ -8,7 +8,7 @@
   
     Votre registre Harbor doit être joignable, par exemple :
   
-  http://harbor.local:8080
+    http://harbor.local:8080
   
     Le projet Harbor doit exister : workflow
   
@@ -120,21 +120,21 @@ II. Configuration obligatoire des GitLab Runners
 
 III. Structure du projet
 
-  workflow-complet/
-  ├── .gitlab-ci.yml
-  ├── docker-compose.yml
-  ├── README.md
-  ├── backend/
-  │   ├── app.py
-  │   ├── requirements.txt
-  │   ├── Dockerfile
-  │   └── test/
-  │        └── test_app.py
-  └── frontend/
-      ├── src/index.js
-      ├── package.json
-      ├── Dockerfile
-      └── test/app.test.js
+    workflow-complet/
+    ├── .gitlab-ci.yml
+    ├── docker-compose.yml
+    ├── README.md
+    ├── backend/
+    │   ├── app.py
+    │   ├── requirements.txt
+    │   ├── Dockerfile
+    │   └── test/
+    │        └── test_app.py
+    └── frontend/
+        ├── src/index.js
+        ├── package.json
+        ├── Dockerfile
+        └── test/app.test.js
 
 IV. Fonctionnement complet du pipeline CI/CD
 
@@ -187,8 +187,8 @@ V. Lancer le projet après clonage
 
 VI. Objectif du projet
 
-  Ce projet sert d’exemple complet de pipeline CI/CD professionnel :
-    - orchestré entièrement par GitLab
-    - compatible infrastructures locales sans TLS
-    - avec analyses de sécurité avancées
-    - avec déploiement automatique
+    Ce projet sert d’exemple complet de pipeline CI/CD professionnel :
+      - orchestré entièrement par GitLab
+      - compatible infrastructures locales sans TLS
+      - avec analyses de sécurité avancées
+      - avec déploiement automatique
