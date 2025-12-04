@@ -81,7 +81,7 @@ II. Configuration obligatoire des GitLab Runners
       oom_kill_disable = false
       disable_cache = false
       volumes = ["/cache"]
-      extra_hosts = ["harbor.local:192.168.88.15"]
+      extra_hosts = ["harbor.local:ip_hote"]
       network_mode = "network-git"
   ```
   
@@ -116,8 +116,8 @@ II. Configuration obligatoire des GitLab Runners
       image = "docker:24.0.5"
       privileged = false
       extra_hosts = [
-        "harbor.local:192.168.88.15",
-        "gitlab.local:192.168.88.15"
+        "harbor.local:ip_hote",
+        "gitlab.local:ip_hote"
       ]
       volumes = [
         "/var/run/docker.sock:/var/run/docker.sock",
