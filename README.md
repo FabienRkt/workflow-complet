@@ -39,6 +39,18 @@
   
     Cela permet le push automatique des images vers Harbor.
 
+  1.5 Variables CI/CD nécessaires
+
+    À ajouter dans GitLab → Settings → CI/CD → Variables.
+    
+    Nom variable	          Description
+    CI_HARBOR_USER	        Utilisateur Harbor
+    CI_HARBOR_PASSWORD	    Mot de passe Harbor
+    TWILIO_ACCOUNT_SID	    Identifiant Twilio
+    TWILIO_AUTH_TOKEN	    Token Twilio
+    TWILIO_WHATSAPP_FROM	Numéro WhatsApp Twilio
+    TWILIO_WHATSAPP_TO	    Destinataire WhatsApp
+
 II. Configuration obligatoire des GitLab Runners
 
   Le pipeline utilise deux runners :
